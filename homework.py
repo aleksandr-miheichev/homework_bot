@@ -160,12 +160,12 @@ def main():
         logging.critical(MISSING_ENVIRONMENT_VARIABLES, exc_info=True)
         raise NameError(MISSING_ENVIRONMENT_VARIABLES)
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    current_timestamp = 0
+    server_variable = 0
     prev_report = {}
     current_report = {}
     while True:
         try:
-            response = get_api_answer(current_timestamp)
+            response = get_api_answer(server_variable)
             homeworks = check_response(response)
             current_report['key'] = homeworks[0]['homework_name']
             if homeworks:
@@ -175,9 +175,9 @@ def main():
             if current_report != prev_report:
                 send_message(bot, current_report['key'])
                 prev_report = current_report.copy()
-                current_timestamp = response.get(
+                server_variable = response.get(
                     'current_date',
-                    current_timestamp
+                    server_variable
                 )
             else:
                 logging.info(NO_VERDICTS)
