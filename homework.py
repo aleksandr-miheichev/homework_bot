@@ -33,8 +33,8 @@ NO_VERDICTS = 'Новые вердикты по работам отсутств�
 NO_ERROR = 'Новые ошибки при работе программы отсутствуют'
 START_SENDING_MESSAGE = 'Началась отправка сообщения "{}" в чат {} Telegram'
 API_REQUEST_START = (
-    'Начата отправка запроса к API c эндпоинтом "{ENDPOINT}", '
-    'заголовком "{HEADERS}" и параметрами "{params}"'
+    'Начата отправка запроса к API c url "{url}", заголовком "{headers}" и '
+    'параметрами "{params}"'
 )
 SENT_MESSAGE = 'Сообщение: "{}" успешно отправлено в чат {}'
 UNSENT_MESSAGE = 'Сообщение "{}" не отправлено в чат из-за ошибки: {}'
@@ -69,30 +69,29 @@ PROGRAM_ERROR = 'Сбой в работе программы: {}'
 def send_message(bot, message):
     """Отправляет сообщение в Telegram чат."""
     try:
-        bot.send_message(TELEGRAM_CHAT_ID, message)
         logging.info(
             START_SENDING_MESSAGE.format(message, TELEGRAM_CHAT_ID))
+        bot.send_message(TELEGRAM_CHAT_ID, message)
     except telegram.error.TelegramError as error:
         logging.exception(UNSENT_MESSAGE.format(message, error))
+    else:
+        logging.info(
+            SENT_MESSAGE.format(message, TELEGRAM_CHAT_ID))
 
 
 def get_api_answer(current_timestamp):
     """Делает запрос к эндпоинту API-сервиса и возвращает ответ API."""
     params = {'from_date': current_timestamp}
     data = {
-        'ENDPOINT': ENDPOINT,
+        'url': ENDPOINT,
+        'headers': HEADERS,
         'params': params,
-        'HEADERS': HEADERS,
     }
     try:
-        homework_statuses = requests.get(
-            ENDPOINT,
-            headers=HEADERS,
-            params=params
-        )
         logging.info(API_REQUEST_START.format(**data))
-        if homework_statuses.status_code != OK:
-            status_code = homework_statuses.status_code
+        homework_statuses = requests.get(**data)
+        status_code = homework_statuses.status_code
+        if status_code != OK:
             raise HTTPErrorException(
                 INVALID_RESPONSE_CODE.format(
                     ENDPOINT,
@@ -101,10 +100,9 @@ def get_api_answer(current_timestamp):
                     status_code
                 )
             )
-        try:
-            statuses = homework_statuses.json()
-        except requests.exceptions.JSONDecodeError:
-            raise JSONDecodeErrorException(JSON_ERROR)
+        statuses = homework_statuses.json()
+    except requests.exceptions.JSONDecodeError:
+        raise JSONDecodeErrorException(JSON_ERROR)
     except requests.ConnectionError as error:
         raise ConnectionErrorException(
             REQUEST_ERROR.format(error, ENDPOINT, HEADERS, params)
@@ -162,26 +160,20 @@ def main():
         logging.critical(MISSING_ENVIRONMENT_VARIABLES, exc_info=True)
         raise NameError(MISSING_ENVIRONMENT_VARIABLES)
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    current_timestamp = int(time.time())
+    current_timestamp = 0
+    prev_report = {}
+    current_report = {}
     while True:
         try:
             response = get_api_answer(current_timestamp)
             homeworks = check_response(response)
-            current_report = {'name': homeworks[0]['homework_name']}
-            prev_report = {}
+            current_report['key'] = homeworks[0]['homework_name']
             if homeworks:
-                current_report.get(
-                    'verdict',
-                    HOMEWORK_VERDICTS[homeworks[0]['status']]
-                )
+                current_report['key'] = parse_status(homeworks[0])
             else:
-                current_report.get('verdict', NO_VERDICTS)
+                current_report['key'] = NO_VERDICTS
             if current_report != prev_report:
-                send_message(bot, parse_status(homeworks[0]))
-                logging.info(SENT_MESSAGE.format(
-                    parse_status(homeworks[0]),
-                    TELEGRAM_CHAT_ID)
-                )
+                send_message(bot, current_report['key'])
                 prev_report = current_report.copy()
                 current_timestamp = response.get(
                     'current_date',
@@ -191,9 +183,12 @@ def main():
                 logging.info(NO_VERDICTS)
         except Exception as error:
             message = PROGRAM_ERROR.format(error)
-            current_report.get('error', message)
+            current_report['key'] = message
             logging.exception(message)
             if message and current_report != prev_report:
+                logging.info(
+                    START_SENDING_MESSAGE.format(message, TELEGRAM_CHAT_ID)
+                )
                 send_message(bot, message)
                 logging.info(SENT_MESSAGE.format(message, TELEGRAM_CHAT_ID))
                 prev_report = current_report.copy()
