@@ -186,12 +186,7 @@ def main():
             current_report['key'] = message
             logging.exception(message)
             if message and current_report != prev_report:
-                logging.info(
-                    START_SENDING_MESSAGE.format(message, TELEGRAM_CHAT_ID)
-                )
                 send_message(bot, message)
-                logging.info(SENT_MESSAGE.format(message, TELEGRAM_CHAT_ID))
-                prev_report = current_report.copy()
             else:
                 logging.info(NO_ERROR)
         finally:
