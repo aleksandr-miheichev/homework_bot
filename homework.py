@@ -1,12 +1,14 @@
 import logging
 import os
 import requests
+import sys
 import telegram
 import time
 
 from dotenv import load_dotenv
 from exception import (
     ConnectionErrorException,
+    DenyServiceErrorException,
     JSONDecodeErrorException,
     HTTPErrorException,
     TimeoutException,
@@ -20,16 +22,17 @@ load_dotenv()
 PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-VARIABLES = ['PRACTICUM_TOKEN', 'TELEGRAM_TOKEN', 'TELEGRAM_CHAT_ID']
+TOKENS = ['PRACTICUM_TOKEN', 'TELEGRAM_TOKEN', 'TELEGRAM_CHAT_ID']
 RETRY_TIME = 600
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
-HOMEWORK_VERDICTS = {
+VERDICTS = {
     'approved': 'Работа проверена: ревьюеру всё понравилось. Ура!',
     'reviewing': 'Работа взята на проверку ревьюером.',
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 NO_VERDICTS = 'Новые вердикты по работам отсутствуют'
+ERROR = 'Появились новые ошибки при работе программы'
 NO_ERROR = 'Новые ошибки при работе программы отсутствуют'
 START_SENDING_MESSAGE = 'Началась отправка сообщения "{}" в чат {} Telegram'
 API_REQUEST_START = (
@@ -64,6 +67,11 @@ MISSING_ENVIRONMENT_VARIABLES = (
 JSON_ERROR = 'Ошибка декодирования информации от сервера в JSON формат'
 MISSING_TOKEN = 'Отсутствует токен {} для работы программы'
 PROGRAM_ERROR = 'Сбой в работе программы: {}'
+DENY_SERVICE = (
+    'В ответе ендпоинта содержится ошибка: {error_code} - {error} - '
+    '{url} - {params} - {headers}'
+)
+ERROR_CODES = ('error', 'code')
 
 
 def send_message(bot, message):
@@ -74,9 +82,11 @@ def send_message(bot, message):
         bot.send_message(TELEGRAM_CHAT_ID, message)
     except telegram.error.TelegramError as error:
         logging.exception(UNSENT_MESSAGE.format(message, error))
+        return False
     else:
         logging.info(
             SENT_MESSAGE.format(message, TELEGRAM_CHAT_ID))
+        return True
 
 
 def get_api_answer(current_timestamp):
@@ -115,6 +125,15 @@ def get_api_answer(current_timestamp):
         raise TimeoutException(
             REQUEST_ERROR.format(error, ENDPOINT, HEADERS, params)
         )
+    for error_code in ERROR_CODES:
+        if error_code in statuses:
+            raise DenyServiceErrorException(
+                DENY_SERVICE.format(
+                    error_code=error_code,
+                    error=statuses[error_code],
+                    **data
+                )
+            )
     return statuses
 
 
@@ -137,26 +156,24 @@ def parse_status(homework):
     """Извлекает из конкретной домашней работы вердикт по этой работе."""
     name = homework['homework_name']
     status = homework['status']
-    if status not in HOMEWORK_VERDICTS:
+    if status not in VERDICTS:
         raise ValueError(UNKNOWN_STATUS.format(status))
-    verdict = HOMEWORK_VERDICTS[status]
-    return CHANGED_VERDICT.format(name, verdict)
+    return CHANGED_VERDICT.format(name, VERDICTS[status])
 
 
 def check_tokens():
     """Проверяет доступность переменных окружения необходимых для работы бота.
     Если отсутствует хотя бы одна переменная — возвращает False, иначе — True.
     """
-    for variable in ['PRACTICUM_TOKEN', 'TELEGRAM_TOKEN', 'TELEGRAM_CHAT_ID']:
-        if not globals()[variable]:
-            logging.exception(MISSING_TOKEN.format(variable))
-            return False
-        return True
+    missed_tokens = [token for token in TOKENS if not globals()[token]]
+    if missed_tokens:
+        logging.exception(MISSING_TOKEN.format(missed_tokens))
+    return not missed_tokens
 
 
 def main():
     """Основная логика работы бота."""
-    if check_tokens() is False:
+    if not check_tokens():
         logging.critical(MISSING_ENVIRONMENT_VARIABLES, exc_info=True)
         raise NameError(MISSING_ENVIRONMENT_VARIABLES)
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
@@ -171,8 +188,10 @@ def main():
                 current_report['key'] = parse_status(homeworks[0])
             else:
                 current_report['key'] = NO_VERDICTS
-            if current_report != prev_report:
-                send_message(bot, current_report['key'])
+            if (
+                    current_report != prev_report
+                    and send_message(bot, current_report['key'])
+            ):
                 prev_report = current_report.copy()
                 server_variable = response.get(
                     'current_date',
@@ -184,8 +203,8 @@ def main():
             message = PROGRAM_ERROR.format(error)
             current_report['key'] = message
             logging.exception(message)
-            if current_report != prev_report:
-                send_message(bot, message)
+            if current_report != prev_report and send_message(bot, message):
+                logging.info(ERROR)
             else:
                 logging.info(NO_ERROR)
         finally:
@@ -197,7 +216,7 @@ if __name__ == '__main__':
         format='%(asctime)s - %(name)s '
                '- (%(filename)s).%(funcName)s(%(lineno)d) '
                '- %(levelname)s - %(message)s',
-        level=logging.DEBUG,
+        level=logging.INFO,
         handlers=[
             RotatingFileHandler(
                 __file__ + '.log',
@@ -205,7 +224,7 @@ if __name__ == '__main__':
                 backupCount=5,
                 encoding='utf-8'
             ),
-            logging.StreamHandler()
+            logging.StreamHandler(sys.stdout)
         ]
     )
     logger = logging.getLogger(__name__)
@@ -235,7 +254,7 @@ if __name__ == '__main__':
 #             main()
 #     uni_main()
 
-#  неожиданный код-возврата
+# "неожиданный код-возврата"
 # if __name__ == '__main__':
 #     from unittest import TestCase, mock, main as uni_main
 #     class TestReq(TestCase):
@@ -247,7 +266,7 @@ if __name__ == '__main__':
 #             main()
 #     uni_main()
 
-# неожиданный статус для домашки
+# "неожиданный статус для домашки"
 # if __name__ == '__main__':
 #     from unittest import TestCase, mock, main as uni_main
 #     JSON = {'homeworks': [{'homework_name': 'test', 'status': 'test'}]}
@@ -260,7 +279,7 @@ if __name__ == '__main__':
 #             main()
 #     uni_main()
 
-# некорректный json
+# "некорректный json"
 # if __name__ == '__main__':
 #     from unittest import TestCase, mock, main as uni_main
 #     JSON = {'homeworks': 1}
