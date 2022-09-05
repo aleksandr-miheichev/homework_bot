@@ -167,7 +167,6 @@ def main():
         try:
             response = get_api_answer(server_variable)
             homeworks = check_response(response)
-            current_report['key'] = homeworks[0]['homework_name']
             if homeworks:
                 current_report['key'] = parse_status(homeworks[0])
             else:
@@ -185,7 +184,7 @@ def main():
             message = PROGRAM_ERROR.format(error)
             current_report['key'] = message
             logging.exception(message)
-            if message and current_report != prev_report:
+            if current_report != prev_report:
                 send_message(bot, message)
             else:
                 logging.info(NO_ERROR)
