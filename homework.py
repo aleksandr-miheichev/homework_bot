@@ -1,11 +1,14 @@
+from http.client import OK
 import logging
+from logging.handlers import RotatingFileHandler
 import os
-import requests
 import sys
-import telegram
 import time
 
 from dotenv import load_dotenv
+import requests
+import telegram
+
 from exception import (
     ConnectionErrorException,
     DenyServiceErrorException,
@@ -14,8 +17,6 @@ from exception import (
     TimeoutException,
     URLRequiredException
 )
-from http.client import OK
-from logging.handlers import RotatingFileHandler
 
 load_dotenv()
 
@@ -78,7 +79,8 @@ def send_message(bot, message):
     """Отправляет сообщение в Telegram чат."""
     try:
         logging.info(
-            START_SENDING_MESSAGE.format(message, TELEGRAM_CHAT_ID))
+            START_SENDING_MESSAGE.format(message, TELEGRAM_CHAT_ID)
+        )
         bot.send_message(TELEGRAM_CHAT_ID, message)
     except telegram.error.TelegramError as error:
         logging.exception(UNSENT_MESSAGE.format(message, error))
@@ -177,7 +179,7 @@ def main():
         logging.critical(MISSING_ENVIRONMENT_VARIABLES, exc_info=True)
         raise NameError(MISSING_ENVIRONMENT_VARIABLES)
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    server_variable = 0
+    server_variable = int(time.time())
     prev_report = {}
     current_report = {}
     while True:
