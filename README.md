@@ -55,7 +55,7 @@ cd
 ```
 
 ```bash
-git clone git@github.com:aleksandr-miheichev/homework_bot.git
+git clone git@github.com:aleksandr-miheichev/homework_checker_telegram_bot.git
 ```
 
 Создать и активировать виртуальное окружение:
